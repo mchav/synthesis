@@ -30,7 +30,7 @@ instance (Show a) => Show (Program a) where
     show (SValue s) = show s
     show (Tail s) = "tail(" ++ show s ++ ")"
     show Start = "0"
-    show End = "1024"
+    show End = "end"
     show (Find n h) = "find(" ++ show n ++ ", " ++ show h ++ ")"
     show (Concat l r) = "(" ++ show l ++ " ++ " ++ show r ++ ")"
     show (Substring start end v) = "substring(" ++ show start ++ ", " ++ show end ++ ", " ++ show v ++ ")"
@@ -42,8 +42,8 @@ gSize (Find l r) = 1 + max (gSize l) (gSize r)
 gSize (Tail v) = 1 + gSize v
 gSize _ = 1
 
-generatePrograms :: String -> [Program String] -> [Program String]
-generatePrograms expected xs = filter ((<= length expected) . length . interpret) (removeDupsLazy $ concatMap enumeratePrograms pairs)
+generatePrograms :: [Program String] -> [Program String]
+generatePrograms xs = removeDupsLazy $ concatMap enumeratePrograms pairs
     where
         pairs = [(p, q) | p <- xs, q <- xs]
 
@@ -69,7 +69,7 @@ removeDupsLazy = go []
 
 interpretInt :: Program Int -> Maybe Int
 interpretInt Start = Just 0
-interpretInt End = Just 1024
+interpretInt End = Just (-1)  -- | Sentinel for end of character.
 interpretInt (Find needle haystack) =
     case (interpret needle, interpret haystack) of
         ("", _)  -> Nothing
@@ -86,12 +86,15 @@ interpret :: Program String -> String
 interpret (SValue v) = v
 interpret (Tail v) = drop 1 (interpret v)
 interpret (Concat l r) = interpret l ++ interpret r
-interpret (Substring i j g) =
-    case (interpretInt i, interpretInt j) of
+interpret (Substring start end g) =
+    case (interpretInt start, interpretInt end) of
         (Nothing, _) -> ""
         (_, Nothing) -> ""
-        (Just i', Just j') ->
-            let s = interpret g
+        (Just i, Just j) ->
+            let
+                s = interpret g
+                i' = if i == (-1) then length s else i
+                j' = if j == (-1) then length s else j
             in take (j' - i') (drop i' s)
 
 search :: String -> String -> Int -> Either String (Program String)
@@ -106,7 +109,7 @@ searchStream ps expected d
     | otherwise =
         case findFirst ps of
             Just p -> Just p
-            Nothing -> searchStream (generatePrograms expected ps) expected (d - 1)
+            Nothing -> searchStream (generatePrograms ps) expected (d - 1)
     where
         findFirst [] = Nothing
         findFirst (p:ps')
