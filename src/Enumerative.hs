@@ -59,45 +59,30 @@ gSize (Lower v) = 1 + gSize v
 gSize (Upper v) = 1 + gSize v
 gSize _ = 1
 
+-- Programs with no free variables
+unparametrized :: [Program String -> Program String]
+unparametrized = [ id
+                 , Tail
+                 , Lower
+                 , Upper
+                 , Head
+                 , \v' -> Concat v' v'
+                 ]
+
+parametrized :: Program String -> [Program String -> Program String]
+parametrized v = [ \v' -> Concat v  v'
+                 , \v' -> Concat v' v
+                 , \v' ->  Substring Start (Find v v') v'
+                 , \v' ->  Substring Start (Find v' v) v
+                 , \v' ->  Substring (Find v v') End v'
+                 , \v' ->  Substring (Find v' v) End v 
+                 ]
+
 generatePrograms :: [Program String] -> [(Program String -> Program String)] -> [Program String -> Program String]
-generatePrograms vars [] = concatMap (\v -> getProgramsForVariable v) vars
+generatePrograms vars [] = unparametrized ++ (concatMap parametrized vars)
+generatePrograms vars ps = ps ++ unparametrized ++ (concatMap (\v -> getProgramsForVariable v) vars)
     where
-        getProgramsForVariable v = [
-                                     -- Programs with no free variables.
-                                     id
-                                   , Tail
-                                   , Lower
-                                   , Upper
-                                   , Head
-                                   , \v' -> Concat v' v'
-
-                                     -- Programs with one free variable
-                                   , \v' -> Concat v  v'
-                                   , \v' -> Concat v' v
-                                   , \v' ->  Substring Start (Find v v') v'
-                                   , \v' ->  Substring Start (Find v' v) v
-                                   , \v' ->  Substring (Find v v') End v'
-                                   , \v' ->  Substring (Find v' v) End v 
-                                   ] 
-generatePrograms vars ps = concatMap (\v -> getProgramsForVariable v) vars
-    where
-        getProgramsForVariable v = (flip concatMap) ps (\p -> [
-                                     -- Programs with no free variables.
-                                     id
-                                   , Tail
-                                   , Lower
-                                   , Upper
-                                   , Head
-                                   , (\v' -> Concat v' v') . p
-
-                                     -- Programs with one free variable
-                                   , (\v' -> Concat v  v') . p
-                                   , (\v' -> Concat v' v) . p
-                                   , (\v' ->  Substring Start (Find v v') v') . p
-                                   , (\v' ->  Substring Start (Find v' v) v) . p
-                                   , (\v' ->  Substring (Find v v') End v') . p
-                                   , (\v' ->  Substring (Find v' v) End v) . p 
-                                   ])
+        getProgramsForVariable v = concatMap (\p -> map (\p' -> p . p') ps) (parametrized v)
 
 removeDupsLazy :: Eq a => [a] -> [a]
 removeDupsLazy = go []
