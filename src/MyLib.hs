@@ -3,7 +3,6 @@
 module MyLib where
 
 import qualified Data.List as L
--- import Data.Maybe
 import Debug.Trace
 
 data Program a where
@@ -48,7 +47,6 @@ instance (Eq a) => Eq (Program a) where
     (==) a@(End) b@(Start) = (interpretInt a) == (interpretInt b)
     (==) a@(End) b@(End) = (interpretInt a) == (interpretInt b)
 
-
 instance (Show a) => Show (Program a) where
     show (SValue s) = show s
     show (Drop s) = "drop(" ++ show s ++ ")"
@@ -59,67 +57,79 @@ instance (Show a) => Show (Program a) where
     show (Substring start end v) = "substring(" ++ show start ++ ", " ++ show end ++ ", " ++ show v ++ ")"
 
 gSize :: Program a -> Int
-gSize (Concat l r) = 1 + (max (gSize l) (gSize r))
-gSize (Substring start end v) = 1 + max (max (gSize start) (gSize end)) (gSize v)
-gSize (Find l r) = 1 + (max (gSize l) (gSize r))
+gSize (Concat l r) = 1 + max (gSize l) (gSize r)
+gSize (Substring start end v) = 1 + maximum [gSize start, gSize end, gSize v]
+gSize (Find l r) = 1 + max (gSize l) (gSize r)
 gSize _ = 1
 
-generatePrograms :: [Program String] -> [Program String]
-generatePrograms xs = concatMap enumeratePrograms (allCombinations xs xs)
+generatePrograms :: String -> [Program String] -> [Program String]
+generatePrograms expected xs = filter ((<= (length expected)) . length . interpret) (removeDupsLazy $ concatMap enumeratePrograms pairs)
     where
-        enumeratePrograms (p, q) = L.nub [ Concat p q
-                                   , Substring Start (Find p q) q
-                                   , Substring Start (Find q p) q
-                                   , Substring (Find p q) End q
-                                   , Substring (Find q p) End q
-                                   , Drop p
-                                   , Drop q
-                                   , p
-                                   , q
-                                   ]
+        pairs = [(p, q) | p <- xs, q <- xs]
+        
+        enumeratePrograms (p, q) = 
+            [ Concat p q
+            , Substring Start (Find p q) q
+            , Substring Start (Find q p) q
+            , Substring (Find p q) End q
+            , Substring (Find q p) End q
+            , Drop p
+            , Drop q
+            , p
+            , q
+            ]
+
+removeDupsLazy :: Eq a => [a] -> [a]
+removeDupsLazy = go []
+    where
+        go _ [] = []
+        go seen (x:xs)
+            | x `elem` seen = go seen xs
+            | otherwise = x : go (x:seen) xs
 
 interpretInt :: Program Int -> Maybe Int
-interpretInt Start    = Just 0
-interpretInt End      = Just 1024
-interpretInt (Find needle haystack) = let
-        needle'    = interpret needle
-        haystack'  = interpret haystack
-        in case (needle', haystack') of
-                    ("", "")        -> Nothing
-                    ("", _)         -> Nothing
-                    (_, "")         -> Nothing
-                    (n'@(x:_), h')  -> case filter snd (map (\i -> (i, take (length n') (drop i h') == n')) (L.elemIndices x h')) of
-                        []    -> Nothing
-                        (i:_) -> Just (fst i)
+interpretInt Start = Just 0
+interpretInt End = Just 1024
+interpretInt (Find needle haystack) = 
+    case (interpret needle, interpret haystack) of
+        ("", _)  -> Nothing
+        (_, "")  -> Nothing
+        (n', h') -> 
+            findIndex n' h' 0
+    where
+        findIndex _ [] _ = Nothing
+        findIndex n (h:hs) i
+            | n `L.isPrefixOf` (h:hs) = Just i
+            | otherwise = findIndex n hs (i + 1)
 
 interpret :: Program String -> String
 interpret (SValue v) = v
 interpret (Drop v) = drop 1 (interpret v)
-interpret (Concat l r) = (interpret l) ++ (interpret r)
-interpret (Substring i j g) = let
-        s = interpret g
-    in case (interpretInt i, interpretInt j) of
-        (_, Nothing)       -> ""
-        (Nothing, _)       -> ""
-        (Just i', Just j') ->  drop i' (take j' s)
+interpret (Concat l r) = interpret l ++ interpret r
+interpret (Substring i j g) = 
+    case (interpretInt i, interpretInt j) of
+        (Nothing, _) -> ""
+        (_, Nothing) -> ""
+        (Just i', Just j') -> 
+            let s = interpret g
+            in take (j' - i') (drop i' s)
 
-search :: String    -- | Input
-       -> String    -- | Expected Output
-       -> Int       -- | Max depth
-       -> Either String (Program String)
-search i o d = case search' [SValue i, SValue " ", SValue "."] o d of
-    [] -> Left "No programs found"
-    xs -> trace (show xs) $ case (L.sortBy (\a b -> compare (gSize a) (gSize b)) xs) of
-        (p:_) -> Right p
-        []    -> Left "Literally impossible"
+search :: String -> String -> Int -> Either String (Program String)
+search i o d = 
+    case searchStream [SValue i, SValue " ", SValue "."] o d of
+        Nothing -> Left "No programs found"
+        Just p -> Right p
 
-search' :: [Program String] -> String -> Int -> [Program String]
-search' ps expected d
-    | d == 0             = []
-    | not (null working) = working ++ (search' (generatePrograms ps) expected (d - 1))
-    | otherwise          = search' (generatePrograms ps) expected (d - 1)
-        where
-            working = trace ("\n---------\n" ++ (L.intercalate "\n" (map show ps))) $ filter ((==expected) . interpret) ps 
-
-allCombinations :: [a] -> [b] -> [(a, b)]
-allCombinations xs ys = [(x, y) | x <- xs, y <- ys]
+searchStream :: [Program String] -> String -> Int -> Maybe (Program String)
+searchStream ps expected d
+    | d == 0 = Nothing
+    | otherwise = 
+        case findFirst ps of
+            Just p -> Just p
+            Nothing -> searchStream (generatePrograms expected ps) expected (d - 1)
+    where
+        findFirst [] = Nothing
+        findFirst (p:ps')
+            | interpret p == expected = 
+                trace ("\nFound: " ++ show p) $ Just p
+            | otherwise = findFirst ps'
