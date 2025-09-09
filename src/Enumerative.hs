@@ -15,37 +15,16 @@ data Program a where
     End :: Program Int
 
 instance (Eq a) => Eq (Program a) where
-    (==) a@(Concat _ _) b@(Concat _ _)      = interpret a == interpret b
-    (==) a@(Concat _ _) b@(Substring {}) = interpret a == interpret b
-    (==) a@(Concat _ _) b@(SValue _)      = interpret a == interpret b
-    (==) a@(Concat _ _) b@(Tail _)      = interpret a == interpret b
-
-    (==) a@(Substring {} ) b@(Concat _ _) = interpret a == interpret b
-    (==) a@(Substring {} ) b@(Substring {}) = interpret a == interpret b
-    (==) a@(Substring {} ) b@(SValue _) = interpret a == interpret b
-    (==) a@(Substring {} ) b@(Tail _) = interpret a == interpret b
-
-    (==) a@(SValue _) b@(Concat _ _) = interpret a == interpret b
-    (==) a@(SValue _) b@(Substring {}) = interpret a == interpret b
-    (==) a@(SValue _) b@(SValue _) = interpret a == interpret b
-    (==) a@(SValue _) b@(Tail _) = interpret a == interpret b
-
-    (==) a@(Tail _) b@(Concat _ _) = interpret a == interpret b
-    (==) a@(Tail _) b@(Substring {}) = interpret a == interpret b
-    (==) a@(Tail _) b@(SValue _) = interpret a == interpret b
-    (==) a@(Tail _) b@(Tail _) = interpret a == interpret b
-
-    (==) a@(Find _ _) b@(Find _ _)      = interpretInt a == interpretInt b
-    (==) a@(Find _ _) b@Start = interpretInt a == interpretInt b
-    (==) a@(Find _ _) b@End = interpretInt a == interpretInt b
-
-    (==) a@Start b@(Find _ _)      = interpretInt a == interpretInt b
-    (==) a@Start b@Start = interpretInt a == interpretInt b
-    (==) a@Start b@End = interpretInt a == interpretInt b
-
-    (==) a@End b@(Find _ _)      = interpretInt a == interpretInt b
-    (==) a@End b@Start = interpretInt a == interpretInt b
-    (==) a@End b@End = interpretInt a == interpretInt b
+    -- | String cases
+    (==) a@(Concat _ _) b    = interpret a == interpret b
+    (==) a@(Substring {}) b = interpret a == interpret b  
+    (==) a@(SValue _) b     = interpret a == interpret b
+    (==) a@(Tail _) b       = interpret a == interpret b
+    
+    -- | Int cases
+    (==) a@(Find _ _) b = interpretInt a == interpretInt b
+    (==) a@Start b     = interpretInt a == interpretInt b
+    (==) a@End b       = interpretInt a == interpretInt b
 
 instance (Show a) => Show (Program a) where
     show (SValue s) = show s
