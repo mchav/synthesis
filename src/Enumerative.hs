@@ -1,18 +1,26 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module Enumerative where
 
 import qualified Data.List as L
+import Data.Char
 import Debug.Trace ( trace )
 
 data Program a where
     Concat :: Program String -> Program String -> Program String
     Substring :: Program Int -> Program Int -> Program String -> Program String
     Tail :: Program String -> Program String
+    Head :: Program String -> Program String
+    Lower :: Program String -> Program String
+    Upper :: Program String -> Program String
     SValue :: String -> Program String
     Find :: Program String -> Program String -> Program Int
     Start :: Program Int
     End :: Program Int
+
+instance Show (Program String -> Program String) where
+    show f = show (f (SValue "<variable>"))
 
 instance (Eq a) => Eq (Program a) where
     -- | String cases
@@ -20,7 +28,10 @@ instance (Eq a) => Eq (Program a) where
     (==) a@(Substring {}) b = interpret a == interpret b  
     (==) a@(SValue _) b     = interpret a == interpret b
     (==) a@(Tail _) b       = interpret a == interpret b
-    
+    (==) a@(Lower _) b       = interpret a == interpret b
+    (==) a@(Upper _) b       = interpret a == interpret b
+    (==) a@(Head _) b       = interpret a == interpret b
+
     -- | Int cases
     (==) a@(Find _ _) b = interpretInt a == interpretInt b
     (==) a@Start b     = interpretInt a == interpretInt b
@@ -29,6 +40,9 @@ instance (Eq a) => Eq (Program a) where
 instance (Show a) => Show (Program a) where
     show (SValue s) = show s
     show (Tail s) = "tail(" ++ show s ++ ")"
+    show (Head s) = "head(" ++ show s ++ ")"
+    show (Lower s) = "lower(" ++ show s ++ ")"
+    show (Upper s) = "upper(" ++ show s ++ ")"
     show Start = "0"
     show End = "end"
     show (Find n h) = "find(" ++ show n ++ ", " ++ show h ++ ")"
@@ -40,24 +54,50 @@ gSize (Concat l r) = 1 + max (gSize l) (gSize r)
 gSize (Substring start end v) = 1 + maximum [gSize start, gSize end, gSize v]
 gSize (Find l r) = 1 + max (gSize l) (gSize r)
 gSize (Tail v) = 1 + gSize v
+gSize (Head v) = 1 + gSize v
+gSize (Lower v) = 1 + gSize v
+gSize (Upper v) = 1 + gSize v
 gSize _ = 1
 
-generatePrograms :: [Program String] -> [Program String]
-generatePrograms xs = removeDupsLazy $ concatMap enumeratePrograms pairs
+generatePrograms :: [Program String] -> [(Program String -> Program String)] -> [Program String -> Program String]
+generatePrograms vars [] = concatMap (\v -> getProgramsForVariable v) vars
     where
-        pairs = [(p, q) | p <- xs, q <- xs]
+        getProgramsForVariable v = [
+                                     -- Programs with no free variables.
+                                     id
+                                   , Tail
+                                   , Lower
+                                   , Upper
+                                   , Head
+                                   , \v' -> Concat v' v'
 
-        enumeratePrograms (p, q) =
-            [ Concat p q
-            , Substring Start (Find p q) q
-            , Substring Start (Find q p) q
-            , Substring (Find p q) End q
-            , Substring (Find q p) End q
-            , Tail p
-            , Tail q
-            , p
-            , q
-            ]
+                                     -- Programs with one free variable
+                                   , \v' -> Concat v  v'
+                                   , \v' -> Concat v' v
+                                   , \v' ->  Substring Start (Find v v') v'
+                                   , \v' ->  Substring Start (Find v' v) v
+                                   , \v' ->  Substring (Find v v') End v'
+                                   , \v' ->  Substring (Find v' v) End v 
+                                   ] 
+generatePrograms vars ps = concatMap (\v -> getProgramsForVariable v) vars
+    where
+        getProgramsForVariable v = (flip concatMap) ps (\p -> [
+                                     -- Programs with no free variables.
+                                     id
+                                   , Tail
+                                   , Lower
+                                   , Upper
+                                   , Head
+                                   , (\v' -> Concat v' v') . p
+
+                                     -- Programs with one free variable
+                                   , (\v' -> Concat v  v') . p
+                                   , (\v' -> Concat v' v) . p
+                                   , (\v' ->  Substring Start (Find v v') v') . p
+                                   , (\v' ->  Substring Start (Find v' v) v) . p
+                                   , (\v' ->  Substring (Find v v') End v') . p
+                                   , (\v' ->  Substring (Find v' v) End v) . p 
+                                   ])
 
 removeDupsLazy :: Eq a => [a] -> [a]
 removeDupsLazy = go []
@@ -85,6 +125,9 @@ interpretInt (Find needle haystack) =
 interpret :: Program String -> String
 interpret (SValue v) = v
 interpret (Tail v) = drop 1 (interpret v)
+interpret (Head v) = take 1 (interpret v)
+interpret (Lower v) = map toLower (interpret v)
+interpret (Upper v) = map toUpper (interpret v)
 interpret (Concat l r) = interpret l ++ interpret r
 interpret (Substring start end g) =
     case (interpretInt start, interpretInt end) of
@@ -97,22 +140,37 @@ interpret (Substring start end g) =
                 j' = if j == (-1) then length s else j
             in take (j' - i') (drop i' s)
 
-search :: String -> String -> Int -> Either String (Program String)
-search i o d =
-    case searchStream [SValue i, SValue " ", SValue "."] o d of
+search :: [(String, String)] -> Int -> Either String (Program String -> Program String)
+search examples d =
+    case searchStream examples (generateVariables examples) [] d of
         Nothing -> Left "No programs found"
         Just p -> Right p
 
-searchStream :: [Program String] -> String -> Int -> Maybe (Program String)
-searchStream ps expected d
+-- | This should create variables out of the inputs and strings in the output that aren't
+-- | in the input.
+generateVariables :: [(String, String)] -> [Program String]
+generateVariables examples = map (SValue . fst) examples ++ (L.nub (commonInput ++ commonOutput))
+    where
+        inputs = map (map toLower . fst) examples
+        outputs = map (map toLower . snd) examples
+        inputChars = concat inputs
+        outputChars = concat outputs
+        commonInput = map (SValue . L.singleton) (filter (\c -> all (L.isInfixOf [c]) inputs) inputChars)
+        commonOutput = map (SValue . L.singleton) (filter (\c -> all (L.isInfixOf [c]) outputs) outputChars)
+
+searchStream :: [(String, String)]                 -- | Examples
+             -> [Program String]                   -- | Variables
+             -> [Program String -> Program String] -- | Programs
+             -> Int                                -- | Search depth
+             -> Maybe (Program String -> Program String) 
+searchStream examples variables ps d
     | d == 0 = Nothing
     | otherwise =
         case findFirst ps of
             Just p -> Just p
-            Nothing -> searchStream (generatePrograms ps) expected (d - 1)
+            Nothing -> trace (L.intercalate "\n" $ map show ps) $ searchStream examples variables (generatePrograms variables ps) (d - 1)
     where
         findFirst [] = Nothing
         findFirst (p:ps')
-            | interpret p == expected =
-                trace ("\nFound: " ++ show p) $ Just p
+            | all (\(i, o) -> interpret (p (SValue i)) == o) examples = trace ("\nFound: " ++ show p) $ Just p
             | otherwise = findFirst ps'
