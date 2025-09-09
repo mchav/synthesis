@@ -3,7 +3,7 @@
 module Enumerative where
 
 import qualified Data.List as L
-import Debug.Trace
+import Debug.Trace ( trace )
 
 data Program a where
     Concat :: Program String -> Program String -> Program String
@@ -60,6 +60,7 @@ gSize :: Program a -> Int
 gSize (Concat l r) = 1 + max (gSize l) (gSize r)
 gSize (Substring start end v) = 1 + maximum [gSize start, gSize end, gSize v]
 gSize (Find l r) = 1 + max (gSize l) (gSize r)
+gSize (Tail v) = 1 + gSize v
 gSize _ = 1
 
 generatePrograms :: String -> [Program String] -> [Program String]
