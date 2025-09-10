@@ -58,9 +58,11 @@ gSize (Lower v) = 1 + gSize v
 gSize (Upper v) = 1 + gSize v
 gSize _ = 1
 
+comp = (.)
+
 generatePrograms :: [Program String] -> [Program String -> Program String] -> [Program String -> Program String]
 generatePrograms vars ps =
-    [comp p t | v <- vars, p <- if null ps then [id] else ps, t <- transforms v]
+    [f | v <- vars , p <- ps, t <- transforms v, f <- [comp t p, comp p t]]
   where
     comp = (.)
     transforms v =
@@ -153,13 +155,13 @@ searchStream ::
     Int ->
     Maybe (Program String -> Program String)
 searchStream examples variables programs d
-    | d == 0 = Nothing
-    | otherwise =
-        case findFirst (deduplicate (map fst examples) ps) of
+    | d == 0 = findFirst ps
+    | otherwise = trace (L.intercalate "\n" $ map show ps) $
+        case findFirst ps of
             Just p -> Just p
             Nothing -> trace (L.intercalate "\n" $ map show ps) $ searchStream examples variables (generatePrograms variables ps) (d - 1)
   where
-    ps = deduplicate (map fst examples) programs
+    ps = trace (L.intercalate "\n" $ map show ps) $ deduplicate (map fst examples) (programs ++ [comp p q | p <- programs, q <- programs])
     findFirst [] = Nothing
     findFirst (p : ps')
         | all (\(i, o) -> interpret (p (SValue i)) == o) examples = trace ("\nFound: " ++ show p) $ Just p
