@@ -1,11 +1,11 @@
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 
 module Enumerative where
 
-import qualified Data.List as L
 import Data.Char
-import Debug.Trace ( trace )
+import qualified Data.List as L
+import Debug.Trace (trace)
 
 data Program a where
     Concat :: Program String -> Program String -> Program String
@@ -23,19 +23,18 @@ instance Show (Program String -> Program String) where
     show f = show (f (SValue "<variable>"))
 
 instance (Eq a) => Eq (Program a) where
-    -- | String cases
-    (==) a@(Concat _ _) b    = interpret a == interpret b
-    (==) a@(Substring {}) b = interpret a == interpret b  
-    (==) a@(SValue _) b     = interpret a == interpret b
-    (==) a@(Tail _) b       = interpret a == interpret b
-    (==) a@(Lower _) b       = interpret a == interpret b
-    (==) a@(Upper _) b       = interpret a == interpret b
-    (==) a@(Head _) b       = interpret a == interpret b
-
-    -- | Int cases
+    -- \| String cases
+    (==) a@(Concat _ _) b = interpret a == interpret b
+    (==) a@(Substring _ _ _) b = interpret a == interpret b
+    (==) a@(SValue _) b = interpret a == interpret b
+    (==) a@(Tail _) b = interpret a == interpret b
+    (==) a@(Lower _) b = interpret a == interpret b
+    (==) a@(Upper _) b = interpret a == interpret b
+    (==) a@(Head _) b = interpret a == interpret b
+    -- \| Int cases
     (==) a@(Find _ _) b = interpretInt a == interpretInt b
-    (==) a@Start b     = interpretInt a == interpretInt b
-    (==) a@End b       = interpretInt a == interpretInt b
+    (==) a@Start b = interpretInt a == interpretInt b
+    (==) a@End b = interpretInt a == interpretInt b
 
 instance (Show a) => Show (Program a) where
     show (SValue s) = show s
@@ -59,68 +58,49 @@ gSize (Lower v) = 1 + gSize v
 gSize (Upper v) = 1 + gSize v
 gSize _ = 1
 
-generatePrograms :: [Program String] -> [(Program String -> Program String)] -> [Program String -> Program String]
-generatePrograms vars [] = concatMap (\v -> getProgramsForVariable v) vars
-    where
-        getProgramsForVariable v = [
-                                     -- Programs with no free variables.
-                                     id
-                                   , Tail
-                                   , Lower
-                                   , Upper
-                                   , Head
-                                   , \v' -> Concat v' v'
+generatePrograms :: [Program String] -> [Program String -> Program String] -> [Program String -> Program String]
+generatePrograms vars ps =
+    [comp p t | v <- vars, p <- if null ps then [id] else ps, t <- transforms v]
+  where
+    comp = (.)
+    transforms v =
+        [ id
+        , Tail
+        , Lower
+        , Upper
+        , Head
+        , \v' -> Concat v' v'
+        , \v' -> Concat v v'
+        , \v' -> Concat v' v
+        , \v' -> Substring Start (Find v v') v'
+        , \v' -> Substring Start (Find v' v) v
+        , \v' -> Substring (Find v v') End v'
+        , \v' -> Substring (Find v' v) End v
+        ]
 
-                                     -- Programs with one free variable
-                                   , \v' -> Concat v  v'
-                                   , \v' -> Concat v' v
-                                   , \v' ->  Substring Start (Find v v') v'
-                                   , \v' ->  Substring Start (Find v' v) v
-                                   , \v' ->  Substring (Find v v') End v'
-                                   , \v' ->  Substring (Find v' v) End v 
-                                   ] 
-generatePrograms vars ps = concatMap (\v -> getProgramsForVariable v) vars
-    where
-        getProgramsForVariable v = (flip concatMap) ps (\p -> [
-                                     -- Programs with no free variables.
-                                     id
-                                   , Tail
-                                   , Lower
-                                   , Upper
-                                   , Head
-                                   , (\v' -> Concat v' v') . p
-
-                                     -- Programs with one free variable
-                                   , (\v' -> Concat v  v') . p
-                                   , (\v' -> Concat v' v) . p
-                                   , (\v' ->  Substring Start (Find v v') v') . p
-                                   , (\v' ->  Substring Start (Find v' v) v) . p
-                                   , (\v' ->  Substring (Find v v') End v') . p
-                                   , (\v' ->  Substring (Find v' v) End v) . p 
-                                   ])
-
-removeDupsLazy :: Eq a => [a] -> [a]
+removeDupsLazy :: (Eq a) => [a] -> [a]
 removeDupsLazy = go []
-    where
-        go _ [] = []
-        go seen (x:xs)
-            | x `elem` seen = go seen xs
-            | otherwise = x : go (x:seen) xs
+  where
+    go _ [] = []
+    go seen (x : xs)
+        | x `elem` seen = go seen xs
+        | otherwise = x : go (x : seen) xs
 
 interpretInt :: Program Int -> Maybe Int
 interpretInt Start = Just 0
-interpretInt End = Just (-1)  -- | Sentinel for end of character.
+interpretInt End = Just (-1)
+-- \| Sentinel for end of character.
 interpretInt (Find needle haystack) =
     case (interpret needle, interpret haystack) of
-        ("", _)  -> Nothing
-        (_, "")  -> Nothing
+        ("", _) -> Nothing
+        (_, "") -> Nothing
         (n', h') ->
             findIndex n' h' 0
-    where
-        findIndex _ [] _ = Nothing
-        findIndex n (h:hs) i
-            | n `L.isPrefixOf` (h:hs) = Just i
-            | otherwise = findIndex n hs (i + 1)
+  where
+    findIndex _ [] _ = Nothing
+    findIndex n (h : hs) i
+        | n `L.isPrefixOf` (h : hs) = Just i
+        | otherwise = findIndex n hs (i + 1)
 
 interpret :: Program String -> String
 interpret (SValue v) = v
@@ -138,7 +118,8 @@ interpret (Substring start end g) =
                 s = interpret g
                 i' = if i == (-1) then length s else i
                 j' = if j == (-1) then length s else j
-            in take (j' - i') (drop i' s)
+             in
+                take (j' - i') (drop i' s)
 
 search :: [(String, String)] -> Int -> Either String (Program String -> Program String)
 search examples d =
@@ -146,31 +127,37 @@ search examples d =
         Nothing -> Left "No programs found"
         Just p -> Right p
 
--- | This should create variables out of the inputs and strings in the output that aren't
--- | in the input.
+{- | This should create variables out of the inputs and strings in the output that aren't
+| in the input.
+-}
 generateVariables :: [(String, String)] -> [Program String]
 generateVariables examples = map (SValue . fst) examples ++ (L.nub (commonInput ++ commonOutput))
-    where
-        inputs = map (map toLower . fst) examples
-        outputs = map (map toLower . snd) examples
-        inputChars = concat inputs
-        outputChars = concat outputs
-        commonInput = map (SValue . L.singleton) (filter (\c -> all (L.isInfixOf [c]) inputs) inputChars)
-        commonOutput = map (SValue . L.singleton) (filter (\c -> all (L.isInfixOf [c]) outputs) outputChars)
+  where
+    inputs = map (map toLower . fst) examples
+    outputs = map (map toLower . snd) examples
+    inputChars = concat inputs
+    outputChars = concat outputs
+    commonInput = map (SValue . L.singleton) (filter (\c -> all (L.isInfixOf [c]) inputs) inputChars)
+    commonOutput = map (SValue . L.singleton) (filter (\c -> all (L.isInfixOf [c]) outputs) outputChars)
 
-searchStream :: [(String, String)]                 -- | Examples
-             -> [Program String]                   -- | Variables
-             -> [Program String -> Program String] -- | Programs
-             -> Int                                -- | Search depth
-             -> Maybe (Program String -> Program String) 
+searchStream ::
+    [(String, String)] ->
+    -- | Examples
+    [Program String] ->
+    -- | Variables
+    [Program String -> Program String] ->
+    -- | Programs
+    Int ->
+    -- | Search depth
+    Maybe (Program String -> Program String)
 searchStream examples variables ps d
     | d == 0 = Nothing
     | otherwise =
         case findFirst ps of
             Just p -> Just p
             Nothing -> trace (L.intercalate "\n" $ map show ps) $ searchStream examples variables (generatePrograms variables ps) (d - 1)
-    where
-        findFirst [] = Nothing
-        findFirst (p:ps')
-            | all (\(i, o) -> interpret (p (SValue i)) == o) examples = trace ("\nFound: " ++ show p) $ Just p
-            | otherwise = findFirst ps'
+  where
+    findFirst [] = Nothing
+    findFirst (p : ps')
+        | all (\(i, o) -> interpret (p (SValue i)) == o) examples = trace ("\nFound: " ++ show p) $ Just p
+        | otherwise = findFirst ps'
