@@ -141,14 +141,14 @@ generateVariables examples = map (SValue . fst) examples ++ (L.nub (commonInput 
     commonOutput = map (SValue . L.singleton) (filter (\c -> all (L.isInfixOf [c]) outputs) outputChars)
 
 searchStream ::
-    [(String, String)] ->
     -- | Examples
-    [Program String] ->
+    [(String, String)] ->
     -- | Variables
-    [Program String -> Program String] ->
+    [Program String] ->
     -- | Programs
-    Int ->
+    [Program String -> Program String] ->
     -- | Search depth
+    Int ->
     Maybe (Program String -> Program String)
 searchStream examples variables ps d
     | d == 0 = Nothing
