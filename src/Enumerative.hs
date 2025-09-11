@@ -16,12 +16,13 @@ data Program a where
     Lower :: Program String -> Program String
     Upper :: Program String -> Program String
     SValue :: String -> Program String
+    Variable :: Program String
     Find :: Program String -> Program String -> Program Int
     Start :: Program Int
     End :: Program Int
 
 instance Show (Program String -> Program String) where
-    show f = show (f (SValue "<variable>"))
+    show f = "(\\Variable -> " ++ show (f Variable) ++ ")"
 
 instance (Eq a) => Eq (Program a) where
     -- \| String cases
@@ -36,6 +37,7 @@ instance (Eq a) => Eq (Program a) where
     (==) a@(Find _ _) b = interpretInt a == interpretInt b
     (==) a@Start b = interpretInt a == interpretInt b
     (==) a@End b = interpretInt a == interpretInt b
+    (==) _ _ = False
 
 deriving instance Show (Program String)
 deriving instance Show (Program Int)
@@ -115,6 +117,7 @@ interpretInt (Find needle haystack) =
 
 interpret :: Program String -> String
 interpret (SValue v) = v
+interpret Variable = error "Cannot evaluate expression with free variable" 
 interpret (Tail v) = drop 1 (interpret v)
 interpret (Head v) = take 1 (interpret v)
 interpret (Lower v) = map toLower (interpret v)
