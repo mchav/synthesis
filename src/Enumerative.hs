@@ -55,7 +55,7 @@ comp :: (b -> c) -> (a -> b) -> a -> c
 comp = (.)
 
 generatePrograms :: [Program String] -> [Program String -> Program String] -> [Program String -> Program String]
-generatePrograms vars existingPrograms = L.sortBy (\p q -> gSize (p (SValue "")) `compare` gSize (q (SValue "")))
+generatePrograms vars existingPrograms =
     [ comp transform p
     | p <- existingPrograms
     , transform <- [Tail, Head, Lower, Upper]
@@ -83,9 +83,6 @@ generatePrograms vars existingPrograms = L.sortBy (\p q -> gSize (p (SValue ""))
         , \v' -> Substring (Find v v') End v'
         , \v' -> Substring (Find v' v) End v
         ]
-
-equivalent :: [String] -> (Program String -> Program String) -> (Program String -> Program String) -> Bool
-equivalent inputs p1 p2 = all ((\i -> interpret (p1 i) == interpret (p2 i)) . SValue) inputs
 
 -- | Deduplicate programs pick the least smallest one by size.
 deduplicate :: [String]
