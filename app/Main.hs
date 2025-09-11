@@ -6,7 +6,8 @@ main :: IO ()
 main = do
     print $
         Enumerative.search
-            [ ("Michael Chavinda", "Michael")
-            , ("Shaka Zulu", "Shaka")
+            [ ("Michael Chavinda", "Michael.Chavinda")
+            , ("Steve Biko", "Steve.Biko")
+            , ("Joshua Nkomo", "Joshua.Nkomo")
             ]
-            5
+            4

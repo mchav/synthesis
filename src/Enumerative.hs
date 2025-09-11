@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 module Enumerative where
 
@@ -36,17 +37,8 @@ instance (Eq a) => Eq (Program a) where
     (==) a@Start b = interpretInt a == interpretInt b
     (==) a@End b = interpretInt a == interpretInt b
 
-instance (Show a) => Show (Program a) where
-    show (SValue s) = show s
-    show (Tail s) = "tail(" ++ show s ++ ")"
-    show (Head s) = "head(" ++ show s ++ ")"
-    show (Lower s) = "lower(" ++ show s ++ ")"
-    show (Upper s) = "upper(" ++ show s ++ ")"
-    show Start = "0"
-    show End = "end"
-    show (Find n h) = "find(" ++ show n ++ ", " ++ show h ++ ")"
-    show (Concat l r) = "(" ++ show l ++ " ++ " ++ show r ++ ")"
-    show (Substring start end v) = "substring(" ++ show start ++ ", " ++ show end ++ ", " ++ show v ++ ")"
+deriving instance Show (Program String)
+deriving instance Show (Program Int)
 
 gSize :: Program a -> Int
 gSize (Concat l r) = 1 + max (gSize l) (gSize r)
@@ -58,21 +50,36 @@ gSize (Lower v) = 1 + gSize v
 gSize (Upper v) = 1 + gSize v
 gSize _ = 1
 
+comp :: (b -> c) -> (a -> b) -> a -> c
 comp = (.)
 
 generatePrograms :: [Program String] -> [Program String -> Program String] -> [Program String -> Program String]
-generatePrograms vars ps =
-    [f | v <- vars , p <- ps, t <- transforms v, f <- [comp t p, comp p t]]
+generatePrograms vars existingPrograms = L.sortBy (\p q -> gSize (p (SValue "")) `compare` gSize (q (SValue "")))
+    [ comp transform p 
+    | p <- existingPrograms
+    , transform <- [Tail, Head, Lower, Upper]
+    ] ++
+    [ comp p q
+    | p <- existingPrograms
+    , q <- existingPrograms
+    ] ++
+    [ \v -> Concat (p v) (q v)
+    | p <- existingPrograms
+    , q <- existingPrograms
+    ] ++
+    [ comp t p
+    | v <- vars
+    , p <- existingPrograms
+    , t <- transformsWithVar v
+    ] ++
+    [ comp p t
+    | v <- vars
+    , p <- existingPrograms
+    , t <- transformsWithVar v
+    ]
   where
-    comp = (.)
-    transforms v =
-        [ id
-        , Tail
-        , Lower
-        , Upper
-        , Head
-        , \v' -> Concat v' v'
-        , \v' -> Concat v v'
+    transformsWithVar v =
+        [ \v' -> Concat v v'
         , \v' -> Concat v' v
         , \v' -> Substring Start (Find v v') v'
         , \v' -> Substring Start (Find v' v) v
@@ -155,13 +162,13 @@ searchStream ::
     Int ->
     Maybe (Program String -> Program String)
 searchStream examples variables programs d
-    | d == 0 = findFirst ps
+    | d == 0 = Nothing
     | otherwise = trace (L.intercalate "\n" $ map show ps) $
         case findFirst ps of
             Just p -> Just p
             Nothing -> trace (L.intercalate "\n" $ map show ps) $ searchStream examples variables (generatePrograms variables ps) (d - 1)
   where
-    ps = trace (L.intercalate "\n" $ map show ps) $ deduplicate (map fst examples) (programs ++ [comp p q | p <- programs, q <- programs])
+    ps = trace (L.intercalate "\n" $ map show programs) $ deduplicate (map fst examples) (if null programs then [id] else programs)
     findFirst [] = Nothing
     findFirst (p : ps')
         | all (\(i, o) -> interpret (p (SValue i)) == o) examples = trace ("\nFound: " ++ show p) $ Just p
