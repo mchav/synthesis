@@ -4,9 +4,8 @@
 
 module Enumerative where
 
-import Data.Char
+import Data.Char ( toLower, toUpper )
 import qualified Data.List as L
-import Debug.Trace (trace)
 
 data Program a where
     Concat :: Program String -> Program String -> Program String
@@ -43,9 +42,9 @@ deriving instance Show (Program String)
 deriving instance Show (Program Int)
 
 gSize :: Program a -> Int
-gSize (Concat l r) = 1 + max (gSize l) (gSize r)
-gSize (Substring start end v) = 1 + maximum [gSize start, gSize end, gSize v]
-gSize (Find l r) = 1 + max (gSize l) (gSize r)
+gSize (Concat l r) = 1 + gSize l + gSize r
+gSize (Substring start end v) = 1 + gSize start + gSize end + gSize v
+gSize (Find l r) = 1 + gSize l + gSize r
 gSize (Tail v) = 1 + gSize v
 gSize (Head v) = 1 + gSize v
 gSize (Lower v) = 1 + gSize v
@@ -57,13 +56,9 @@ comp = (.)
 
 generatePrograms :: [Program String] -> [Program String -> Program String] -> [Program String -> Program String]
 generatePrograms vars existingPrograms = L.sortBy (\p q -> gSize (p (SValue "")) `compare` gSize (q (SValue "")))
-    [ comp transform p 
+    [ comp transform p
     | p <- existingPrograms
     , transform <- [Tail, Head, Lower, Upper]
-    ] ++
-    [ comp p q
-    | p <- existingPrograms
-    , q <- existingPrograms
     ] ++
     [ \v -> Concat (p v) (q v)
     | p <- existingPrograms
@@ -92,13 +87,27 @@ generatePrograms vars existingPrograms = L.sortBy (\p q -> gSize (p (SValue ""))
 equivalent :: [String] -> (Program String -> Program String) -> (Program String -> Program String) -> Bool
 equivalent inputs p1 p2 = all ((\i -> interpret (p1 i) == interpret (p2 i)) . SValue) inputs
 
-deduplicate :: [String] -> [Program String -> Program String] -> [Program String -> Program String]
-deduplicate inputs = go []
+-- | Deduplicate programs pick the least smallest one by size.
+deduplicate :: [String]
+            -> [Program String -> Program String]
+            -> [Program String -> Program String]
+deduplicate inputs ps =
+  map pickBest
+  $ L.groupBy sameSig
+  $ L.sortBy cmpSig
+  $ map decorate ps
   where
-    go _ [] = []
-    go seen (x : xs)
-        | any (equivalent inputs x) seen = go seen xs
-        | otherwise = x : go (x : seen) xs
+    decorate p =
+      let sig = map (interpret . p . SValue) inputs
+          sz  = gSize (p (SValue ""))
+      in (sig, sz, p)
+
+    cmpSig  (s1,_,_) (s2,_,_) = compare s1 s2
+    sameSig (s1,_,_) (s2,_,_) = s1 == s2
+
+    pickBest grp =
+      let (_,_,p) = L.minimumBy (\(_,a,_) (_,b,_) -> compare a b) grp
+      in p
 
 interpretInt :: Program Int -> Maybe Int
 interpretInt Start = Just 0
@@ -117,7 +126,7 @@ interpretInt (Find needle haystack) =
 
 interpret :: Program String -> String
 interpret (SValue v) = v
-interpret Variable = error "Cannot evaluate expression with free variable" 
+interpret Variable = error "Cannot evaluate expression with free variable"
 interpret (Tail v) = drop 1 (interpret v)
 interpret (Head v) = take 1 (interpret v)
 interpret (Lower v) = map toLower (interpret v)
@@ -166,13 +175,27 @@ searchStream ::
     Maybe (Program String -> Program String)
 searchStream examples variables programs d
     | d == 0 = Nothing
-    | otherwise = trace (L.intercalate "\n" $ map show ps) $
+    | otherwise =
         case findFirst ps of
             Just p -> Just p
-            Nothing -> trace (L.intercalate "\n" $ map show ps) $ searchStream examples variables (generatePrograms variables ps) (d - 1)
+            Nothing -> searchStream examples variables (generatePrograms variables ps) (d - 1)
   where
-    ps = trace (L.intercalate "\n" $ map show programs) $ deduplicate (map fst examples) (if null programs then [id] else programs)
+    ps = prune examples $ deduplicate (map fst examples) (if null programs then [id] else programs)
     findFirst [] = Nothing
     findFirst (p : ps')
-        | all (\(i, o) -> interpret (p (SValue i)) == o) examples = trace ("\nFound: " ++ show p) $ Just p
+        | satisfiesExamples examples p = Just p
         | otherwise = findFirst ps'
+
+-- | For this problem we prune based on length.
+prune :: [(String, String)] -> [Program String -> Program String] -> [Program String -> Program String]
+prune examples ps = pruned
+    where
+        pruned = filter (\p -> all (\(i, o) -> length (interpret (p (SValue i))) <= max (length i) (length o)) examples) ps
+
+satisfiesExamples :: [(String, String)] -> (Program String -> Program String) -> Bool
+satisfiesExamples examples p = go examples
+  where
+    go [] = True
+    go ((input, output):rest) =
+        let result = interpret (p (SValue input))
+        in result == output && go rest
